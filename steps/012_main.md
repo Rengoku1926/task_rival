@@ -1,0 +1,222 @@
+# Step 012 — Main: Wiring & Routes
+
+`main.go` is the composition root. It loads config, connects the database, builds every dependency, registers all routes, and starts the server with graceful shutdown.
+
+## File: `cmd/server/main.go`
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+
+	"github.com/prateekmahapatra/task_rival/backend/internal/config"
+	"github.com/prateekmahapatra/task_rival/backend/internal/database"
+	"github.com/prateekmahapatra/task_rival/backend/internal/handler"
+	"github.com/prateekmahapatra/task_rival/backend/internal/middleware"
+	"github.com/prateekmahapatra/task_rival/backend/internal/repository"
+	"github.com/prateekmahapatra/task_rival/backend/internal/service"
+	"github.com/prateekmahapatra/task_rival/backend/internal/sse"
+)
+
+func main() {
+	// ── Logger ───────────────────────────────────────────────────────────────
+	// Pretty-print in development; JSON in production.
+	if os.Getenv("ENV") != "production" {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	}
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	// ── Config ───────────────────────────────────────────────────────────────
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load config")
+	}
+	log.Info().Str("env", cfg.Env).Str("port", cfg.Port).Msg("config loaded")
+
+	// ── Migrations ───────────────────────────────────────────────────────────
+	// Run against the direct (non-pooled) URL before accepting connections.
+	log.Info().Msg("running database migrations")
+	if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
+		log.Fatal().Err(err).Msg("migrations failed")
+	}
+	log.Info().Msg("migrations complete")
+
+	// ── Database pool ────────────────────────────────────────────────────────
+	ctx := context.Background()
+	pool, err := database.New(ctx, cfg.DatabasePoolerURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to connect to database")
+	}
+	defer pool.Close()
+	log.Info().Msg("database connected")
+
+	// ── Repositories ─────────────────────────────────────────────────────────
+	userRepo       := repository.NewUserRepo(pool)
+	taskRepo       := repository.NewTaskRepo(pool)
+	tokenRepo      := repository.NewTokenRepo(pool)
+	attachmentRepo := repository.NewAttachmentRepo(pool)
+	activityRepo   := repository.NewActivityRepo(pool)
+
+	// ── SSE broker ───────────────────────────────────────────────────────────
+	broker := sse.NewBroker()
+
+	// ── Services ─────────────────────────────────────────────────────────────
+	authSvc   := service.NewAuthService(userRepo, tokenRepo, cfg)
+	taskSvc   := service.NewTaskService(taskRepo, activityRepo, broker)
+	uploadSvc := service.NewUploadService(cfg.CloudinaryURL)
+
+	// ── Handlers ─────────────────────────────────────────────────────────────
+	healthHandler     := handler.NewHealthHandler()
+	authHandler       := handler.NewAuthHandler(authSvc)
+	taskHandler       := handler.NewTaskHandler(taskSvc)
+	attachmentHandler := handler.NewAttachmentHandler(attachmentRepo, taskRepo, uploadSvc, activityRepo)
+	activityHandler   := handler.NewActivityHandler(activityRepo)
+	sseHandler        := handler.NewSSEHandler(broker, cfg.JWTSecret)
+
+	// ── Router ───────────────────────────────────────────────────────────────
+	mux := http.NewServeMux()
+
+	// Middleware shortcuts
+	rl   := middleware.RateLimit(100)
+	auth := middleware.Auth(cfg)
+	adm  := middleware.Admin
+
+	// System
+	mux.Handle("GET /health", http.HandlerFunc(healthHandler.Health))
+
+	// Auth — no JWT required
+	mux.Handle("POST /auth/signup",  middleware.Chain(http.HandlerFunc(authHandler.Signup),  rl))
+	mux.Handle("POST /auth/login",   middleware.Chain(http.HandlerFunc(authHandler.Login),   rl))
+	mux.Handle("POST /auth/refresh", middleware.Chain(http.HandlerFunc(authHandler.Refresh), rl))
+	mux.Handle("POST /auth/logout",  middleware.Chain(http.HandlerFunc(authHandler.Logout),  rl, auth))
+
+	// Tasks — JWT required
+	mux.Handle("GET /tasks",         middleware.Chain(http.HandlerFunc(taskHandler.List),   rl, auth))
+	mux.Handle("POST /tasks",        middleware.Chain(http.HandlerFunc(taskHandler.Create), rl, auth))
+	mux.Handle("GET /tasks/{id}",    middleware.Chain(http.HandlerFunc(taskHandler.Get),    rl, auth))
+	mux.Handle("PATCH /tasks/{id}",  middleware.Chain(http.HandlerFunc(taskHandler.Update), rl, auth))
+	mux.Handle("DELETE /tasks/{id}", middleware.Chain(http.HandlerFunc(taskHandler.Delete), rl, auth))
+
+	// Attachments — JWT required
+	mux.Handle("GET /tasks/{id}/attachments",            middleware.Chain(http.HandlerFunc(attachmentHandler.List),      rl, auth))
+	mux.Handle("POST /tasks/{id}/attachments",           middleware.Chain(http.HandlerFunc(attachmentHandler.Create),    rl, auth))
+	mux.Handle("GET /tasks/{id}/attachments/upload-url", middleware.Chain(http.HandlerFunc(attachmentHandler.UploadURL), rl, auth))
+
+	// Activity — JWT required
+	mux.Handle("GET /tasks/{id}/activity", middleware.Chain(http.HandlerFunc(activityHandler.List), rl, auth))
+
+	// Admin — JWT + admin role required
+	mux.Handle("GET /admin/tasks", middleware.Chain(http.HandlerFunc(taskHandler.AdminList), rl, auth, adm))
+
+	// SSE — token in query param (EventSource can't set headers)
+	mux.Handle("GET /events", middleware.Chain(http.HandlerFunc(sseHandler.Stream), rl))
+
+	// ── Global middleware ────────────────────────────────────────────────────
+	// Applied outermost — every request goes through these before reaching the mux.
+	var httpHandler http.Handler = mux
+	httpHandler = middleware.Logger(httpHandler)     // structured request logging
+	httpHandler = middleware.CORS(cfg)(httpHandler)  // CORS headers + OPTIONS preflight
+
+	// ── HTTP server ──────────────────────────────────────────────────────────
+	srv := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      httpHandler,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 60 * time.Second, // longer for SSE connections
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Start in goroutine so we can listen for shutdown signals.
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Info().Str("addr", srv.Addr).Msg("server starting")
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
+	// ── Graceful shutdown ────────────────────────────────────────────────────
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		log.Fatal().Err(err).Msg("server error")
+	case sig := <-quit:
+		log.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("graceful shutdown failed")
+	} else {
+		log.Info().Msg("server stopped")
+	}
+}
+```
+
+---
+
+## Route summary
+
+| Method | Path | Middleware | Description |
+|---|---|---|---|
+| GET | `/health` | — | Health check |
+| POST | `/auth/signup` | RateLimit | Create account |
+| POST | `/auth/login` | RateLimit | Login |
+| POST | `/auth/refresh` | RateLimit | Rotate refresh token |
+| POST | `/auth/logout` | RateLimit, Auth | Revoke token |
+| GET | `/tasks` | RateLimit, Auth | List tasks (filter/search/sort/paginate) |
+| POST | `/tasks` | RateLimit, Auth | Create task |
+| GET | `/tasks/{id}` | RateLimit, Auth | Get task |
+| PATCH | `/tasks/{id}` | RateLimit, Auth | Update task |
+| DELETE | `/tasks/{id}` | RateLimit, Auth | Delete task |
+| GET | `/tasks/{id}/attachments` | RateLimit, Auth | List attachments |
+| POST | `/tasks/{id}/attachments` | RateLimit, Auth | Register attachment |
+| GET | `/tasks/{id}/attachments/upload-url` | RateLimit, Auth | Get signed upload URL |
+| GET | `/tasks/{id}/activity` | RateLimit, Auth | Activity log |
+| GET | `/admin/tasks` | RateLimit, Auth, Admin | Admin: all tasks |
+| GET | `/events` | RateLimit | SSE stream (JWT in query param) |
+
+Global (outermost): Logger → CORS → mux
+
+---
+
+## Run locally
+
+```bash
+cd backend
+cp .env.example .env
+# fill in DATABASE_URL, JWT_SECRET, etc.
+
+export $(grep -v '^#' .env | xargs)
+go run ./cmd/server
+```
+
+Expected output:
+```
+INF config loaded env=development port=8080
+INF running database migrations
+INF migrations complete
+INF database connected
+INF server starting addr=:8080
+```
+
+## Test the health endpoint
+
+```bash
+curl http://localhost:8080/health
+# {"success":true,"data":{"status":"ok","time":"2024-..."}}
+```
