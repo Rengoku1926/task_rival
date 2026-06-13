@@ -21,12 +21,17 @@ export function Navbar() {
   const searchParams = useSearchParams();
   const user = useAuthStore((s) => s.user);
 
-  const [search, setSearch] = useState(searchParams.get("q") ?? "");
+  const queryParam = searchParams.get("q") ?? "";
+  const [search, setSearch] = useState(queryParam);
 
   // Keep the input in sync when navigation clears or changes the query.
-  useEffect(() => {
-    setSearch(searchParams.get("q") ?? "");
-  }, [searchParams]);
+  // (Adjusting state during render instead of in an effect — see
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
+  const [prevQueryParam, setPrevQueryParam] = useState(queryParam);
+  if (queryParam !== prevQueryParam) {
+    setPrevQueryParam(queryParam);
+    setSearch(queryParam);
+  }
 
   // Debounced global search: routes to the board with ?q=
   useEffect(() => {
