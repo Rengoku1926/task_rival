@@ -1,0 +1,75 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-background: #f5f6f8;
+  --color-foreground: #18181b;
+  --color-card: #ffffff;
+  --color-card-foreground: #18181b;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #18181b;
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f4f4f5;
+  --color-secondary-foreground: #27272a;
+  --color-muted: #f4f4f5;
+  --color-muted-foreground: #71717a;
+  --color-accent: #eff6ff;
+  --color-accent-foreground: #1d4ed8;
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #e7e8ec;
+  --color-input: #dfe1e6;
+  --color-ring: #2563eb;
+  --radius: 0.75rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+.dark {
+  --color-background: #0c0c0e;
+  --color-foreground: #f4f4f5;
+  --color-card: #161618;
+  --color-card-foreground: #f4f4f5;
+  --color-popover: #1b1b1e;
+  --color-popover-foreground: #f4f4f5;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #232326;
+  --color-secondary-foreground: #e4e4e7;
+  --color-muted: #232326;
+  --color-muted-foreground: #9d9da6;
+  --color-accent: #1e2a47;
+  --color-accent-foreground: #93c5fd;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #26262a;
+  --color-input: #2e2e33;
+  --color-ring: #3b82f6;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+/* Thin, unobtrusive scrollbars for board columns */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-muted-foreground) 30%, transparent) transparent;
+}
