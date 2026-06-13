@@ -119,10 +119,11 @@ func (r *TaskRepo) List(ctx context.Context, p ListTasksParams) (ListTasksResult
 			WHERE ($1 = '' OR status = $1)
 			  AND ($2 = '' OR to_tsvector('english', title) @@ plainto_tsquery('english', $2))`
 		listQuery = fmt.Sprintf(`
-			SELECT id, user_id, title, description, status, priority, due_date, created_at, updated_at
-			FROM tasks
-			WHERE ($1 = '' OR status = $1)
-			  AND ($2 = '' OR to_tsvector('english', title) @@ plainto_tsquery('english', $2))
+			SELECT t.id, t.user_id, t.title, t.description, t.status, t.priority, t.due_date, t.created_at, t.updated_at, u.name, u.email
+			FROM tasks t
+			JOIN users u ON u.id = t.user_id
+			WHERE ($1 = '' OR t.status = $1)
+			  AND ($2 = '' OR to_tsvector('english', t.title) @@ plainto_tsquery('english', $2))
 			ORDER BY %s
 			LIMIT $3 OFFSET $4`, orderClause)
 	}
@@ -140,7 +141,12 @@ func (r *TaskRepo) List(ctx context.Context, p ListTasksParams) (ListTasksResult
 
 	var tasks []*model.Task
 	for rows.Next() {
-		t, err := scanTask(rows)
+		var t *model.Task
+		if p.UserID != uuid.Nil {
+			t, err = scanTask(rows)
+		} else {
+			t, err = scanTaskWithOwner(rows)
+		}
 		if err != nil {
 			return ListTasksResult{}, err
 		}
@@ -202,6 +208,22 @@ func scanTask(row pgx.Row) (*model.Task, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan task: %w", err)
+	}
+	return &t, nil
+}
+
+// scanTaskWithOwner scans a task row that also includes the owner's name and email
+// (admin task listing only).
+func scanTaskWithOwner(row pgx.Row) (*model.Task, error) {
+	var t model.Task
+	err := row.Scan(
+		&t.ID, &t.UserID, &t.Title, &t.Description,
+		&t.Status, &t.Priority, &t.DueDate,
+		&t.CreatedAt, &t.UpdatedAt,
+		&t.OwnerName, &t.OwnerEmail,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("scan task with owner: %w", err)
 	}
 	return &t, nil
 }

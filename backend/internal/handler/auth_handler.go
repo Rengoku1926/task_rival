@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prateekmahapatra/task_rival/backend/internal/config"
 	"github.com/prateekmahapatra/task_rival/backend/internal/middleware"
 	"github.com/prateekmahapatra/task_rival/backend/internal/service"
 	"github.com/prateekmahapatra/task_rival/backend/internal/validator"
@@ -14,10 +15,11 @@ import (
 
 type AuthHandler struct {
 	auth *service.AuthService
+	cfg  *config.Config
 }
 
-func NewAuthHandler(auth *service.AuthService) *AuthHandler {
-	return &AuthHandler{auth: auth}
+func NewAuthHandler(auth *service.AuthService, cfg *config.Config) *AuthHandler {
+	return &AuthHandler{auth: auth, cfg: cfg}
 }
 
 // POST /auth/signup
@@ -60,7 +62,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setRefreshCookie(w, result.RefreshToken, time.Now().Add(7*24*time.Hour))
+	h.setRefreshCookie(w, result.RefreshToken, time.Now().Add(7*24*time.Hour))
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"user":         result.User,
 		"access_token": result.AccessToken,
@@ -102,7 +104,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setRefreshCookie(w, result.RefreshToken, time.Now().Add(7*24*time.Hour))
+	h.setRefreshCookie(w, result.RefreshToken, time.Now().Add(7*24*time.Hour))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":         result.User,
 		"access_token": result.AccessToken,
@@ -122,7 +124,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	result, err := h.auth.Refresh(r.Context(), cookie.Value)
 	if err != nil {
 		if errors.Is(err, service.ErrTokenInvalid) {
-			clearRefreshCookie(w)
+			h.clearRefreshCookie(w)
 			writeError(w, http.StatusUnauthorized, codeUnauthorized, "refresh token invalid or expired", nil)
 			return
 		}
@@ -131,7 +133,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setRefreshCookie(w, result.RefreshToken, time.Now().Add(7*24*time.Hour))
+	h.setRefreshCookie(w, result.RefreshToken, time.Now().Add(7*24*time.Hour))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token": result.AccessToken,
 	})
@@ -143,31 +145,47 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		_ = h.auth.Logout(r.Context(), cookie.Value)
 	}
-	clearRefreshCookie(w)
+	h.clearRefreshCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "logged out"})
+}
+
+// GET /auth/me  — requires Auth middleware
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	log := zerolog.Ctx(r.Context())
+
+	user, err := h.auth.Me(r.Context(), middleware.UserIDFrom(r.Context()))
+	if err != nil {
+		log.Error().Err(err).Msg("me failed")
+		writeError(w, http.StatusInternalServerError, codeInternal, "something went wrong", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": user,
+	})
 }
 
 // --- cookie helpers ---------------------------------------------------------
 
-func setRefreshCookie(w http.ResponseWriter, token string, expires time.Time) {
+func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    token,
 		Expires:  expires,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.cfg.IsProd(),
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/auth",
 	})
 }
 
-func clearRefreshCookie(w http.ResponseWriter) {
+func (h *AuthHandler) clearRefreshCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    "",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.cfg.IsProd(),
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/auth",
 	})

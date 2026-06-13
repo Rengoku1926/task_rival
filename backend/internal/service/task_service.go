@@ -67,6 +67,18 @@ func (s *TaskService) GetTask(ctx context.Context, id, userID uuid.UUID) (*model
 	return task, nil
 }
 
+// GetTaskAdmin fetches a task by id regardless of owner (admin use only).
+func (s *TaskService) GetTaskAdmin(ctx context.Context, id uuid.UUID) (*model.Task, error) {
+	task, err := s.tasks.GetByIDAdmin(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("get task: %w", err)
+	}
+	return task, nil
+}
+
 func (s *TaskService) ListTasks(ctx context.Context, p repository.ListTasksParams) (repository.ListTasksResult, error) {
 	result, err := s.tasks.List(ctx, p)
 	if err != nil {

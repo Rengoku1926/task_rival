@@ -73,7 +73,7 @@ func main() {
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	healthHandler     := handler.NewHealthHandler()
-	authHandler       := handler.NewAuthHandler(authSvc)
+	authHandler       := handler.NewAuthHandler(authSvc, cfg)
 	taskHandler       := handler.NewTaskHandler(taskSvc)
 	attachmentHandler := handler.NewAttachmentHandler(attachmentRepo, taskRepo, uploadSvc, activityRepo)
 	activityHandler   := handler.NewActivityHandler(activityRepo)
@@ -95,6 +95,7 @@ func main() {
 	mux.Handle("POST /auth/login",   middleware.Chain(http.HandlerFunc(authHandler.Login),   rl))
 	mux.Handle("POST /auth/refresh", middleware.Chain(http.HandlerFunc(authHandler.Refresh), rl))
 	mux.Handle("POST /auth/logout",  middleware.Chain(http.HandlerFunc(authHandler.Logout),  rl, auth))
+	mux.Handle("GET /auth/me",       middleware.Chain(http.HandlerFunc(authHandler.Me),      rl, auth))
 
 	// Tasks — JWT required
 	mux.Handle("GET /tasks",         middleware.Chain(http.HandlerFunc(taskHandler.List),   rl, auth))

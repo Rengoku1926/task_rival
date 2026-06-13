@@ -138,6 +138,11 @@ func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
 	return nil
 }
 
+// Me returns the current user fetched fresh from the database.
+func (s *AuthService) Me(ctx context.Context, userID uuid.UUID) (*model.User, error) {
+	return s.users.GetByID(ctx, userID)
+}
+
 // --- helpers ----------------------------------------------------------------
 
 func (s *AuthService) buildAuthResult(ctx context.Context, user *model.User) (*AuthResult, error) {

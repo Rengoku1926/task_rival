@@ -124,7 +124,12 @@ func (h *TaskHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.tasks.GetTask(r.Context(), id, userID)
+	var task *model.Task
+	if middleware.RoleFrom(r.Context()) == model.RoleAdmin {
+		task, err = h.tasks.GetTaskAdmin(r.Context(), id)
+	} else {
+		task, err = h.tasks.GetTask(r.Context(), id, userID)
+	}
 	if err != nil {
 		if errors.Is(err, service.ErrTaskNotFound) {
 			writeError(w, http.StatusNotFound, codeNotFound, "task not found", nil)
