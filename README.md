@@ -1,4 +1,6 @@
 # Task Rival
+<img width="1447" height="762" alt="image" src="https://github.com/user-attachments/assets/b65ea77f-8df5-428a-9f5f-f67deb29a9fb" />
+
 
 
 A full-stack task management app — Next.js frontend, Go REST API backend, PostgreSQL (Supabase) database.
