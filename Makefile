@@ -33,10 +33,6 @@ test:
 test-backend:
 	cd backend && go test ./... -v -race
 
-# Run frontend tests only
-test-frontend:
-	cd frontend && npm run test
-
 # Rebuild without cache
 rebuild:
 	docker compose up --build --force-recreate
