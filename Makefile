@@ -1,4 +1,4 @@
-.PHONY: up up-backend up-frontend down logs migrate test test-backend test-frontend rebuild
+.PHONY: up up-backend up-frontend down logs migrate test test-backend rebuild
 
 # Start full stack with one command
 up:
@@ -25,9 +25,7 @@ migrate:
 	docker compose exec backend ./server migrate
 
 # Run all tests
-test:
-	cd backend && go test ./...
-	cd frontend && npm run test
+test: test-backend
 
 # Run backend tests only
 test-backend:

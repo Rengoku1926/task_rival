@@ -89,8 +89,8 @@ npm run dev
 ## Tests
 
 ```bash
-make test            # backend + frontend
-make test-backend    # go test ./... -v -race
+make test            # go test ./... -v -race
+make test-backend    # same as above
 ```
 
 Backend integration tests need `TEST_DATABASE_URL` set in `backend/.env` (they're skipped if it's not set).
