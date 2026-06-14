@@ -28,8 +28,6 @@ func (e Errors) Error() string {
 	return strings.Join(parts, "; ")
 }
 
-// --- individual checks ------------------------------------------------------
-
 // Required fails when value is empty after trimming.
 func Required(errs Errors, field, value string) {
 	if strings.TrimSpace(value) == "" {

@@ -165,7 +165,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- cookie helpers ---------------------------------------------------------
+// cookie helpers
 
 func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{

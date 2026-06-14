@@ -25,29 +25,25 @@ import (
 func main() {
 	_ = godotenv.Load()
 
-	// ── Logger ───────────────────────────────────────────────────────────────
-	// Pretty-print in development; JSON in production.
+	// pretty-print in dev, JSON in prod
 	if os.Getenv("ENV") != "production" {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	}
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 
-	// ── Config ───────────────────────────────────────────────────────────────
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 	log.Info().Str("env", cfg.Env).Str("port", cfg.Port).Msg("config loaded")
 
-	// ── Migrations ───────────────────────────────────────────────────────────
-	// Run against the direct (non-pooled) URL before accepting connections.
+	// run against the direct (non-pooled) URL before accepting connections
 	log.Info().Msg("running database migrations")
 	if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
 		log.Fatal().Err(err).Msg("migrations failed")
 	}
 	log.Info().Msg("migrations complete")
 
-	// ── Database pool ────────────────────────────────────────────────────────
 	ctx := context.Background()
 	pool, err := database.New(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -56,30 +52,25 @@ func main() {
 	defer pool.Close()
 	log.Info().Msg("database connected")
 
-	// ── Repositories ─────────────────────────────────────────────────────────
-	userRepo       := repository.NewUserRepo(pool)
-	taskRepo       := repository.NewTaskRepo(pool)
-	tokenRepo      := repository.NewTokenRepo(pool)
+	userRepo := repository.NewUserRepo(pool)
+	taskRepo := repository.NewTaskRepo(pool)
+	tokenRepo := repository.NewTokenRepo(pool)
 	attachmentRepo := repository.NewAttachmentRepo(pool)
-	activityRepo   := repository.NewActivityRepo(pool)
+	activityRepo := repository.NewActivityRepo(pool)
 
-	// ── SSE broker ───────────────────────────────────────────────────────────
 	broker := sse.NewBroker()
 
-	// ── Services ─────────────────────────────────────────────────────────────
-	authSvc   := service.NewAuthService(userRepo, tokenRepo, cfg)
-	taskSvc   := service.NewTaskService(taskRepo, activityRepo, broker)
+	authSvc := service.NewAuthService(userRepo, tokenRepo, cfg)
+	taskSvc := service.NewTaskService(taskRepo, activityRepo, broker)
 	uploadSvc := service.NewUploadService(cfg.CloudinaryURL)
 
-	// ── Handlers ─────────────────────────────────────────────────────────────
-	healthHandler     := handler.NewHealthHandler()
-	authHandler       := handler.NewAuthHandler(authSvc, cfg)
-	taskHandler       := handler.NewTaskHandler(taskSvc)
+	healthHandler := handler.NewHealthHandler()
+	authHandler := handler.NewAuthHandler(authSvc, cfg)
+	taskHandler := handler.NewTaskHandler(taskSvc)
 	attachmentHandler := handler.NewAttachmentHandler(attachmentRepo, taskRepo, uploadSvc, activityRepo)
-	activityHandler   := handler.NewActivityHandler(activityRepo)
-	sseHandler        := handler.NewSSEHandler(broker, cfg.JWTSecret)
+	activityHandler := handler.NewActivityHandler(activityRepo)
+	sseHandler := handler.NewSSEHandler(broker, cfg.JWTSecret)
 
-	// ── Router ───────────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
 
 	// Middleware shortcuts
@@ -118,13 +109,11 @@ func main() {
 	// SSE — token in query param (EventSource can't set headers)
 	mux.Handle("GET /events", middleware.Chain(http.HandlerFunc(sseHandler.Stream), rl))
 
-	// ── Global middleware ────────────────────────────────────────────────────
-	// Applied outermost — every request goes through these before reaching the mux.
+	// applied outermost — every request goes through these before reaching the mux
 	var httpHandler http.Handler = mux
-	httpHandler = middleware.Logger(httpHandler)     // structured request logging
-	httpHandler = middleware.CORS(cfg)(httpHandler)  // CORS headers + OPTIONS preflight
+	httpHandler = middleware.Logger(httpHandler)    // structured request logging
+	httpHandler = middleware.CORS(cfg)(httpHandler) // CORS headers + OPTIONS preflight
 
-	// ── HTTP server ──────────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      httpHandler,
@@ -133,7 +122,7 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Start in goroutine so we can listen for shutdown signals.
+	// run in goroutine so we can listen for shutdown signals
 	serverErr := make(chan error, 1)
 	go func() {
 		log.Info().Str("addr", srv.Addr).Msg("server starting")
@@ -142,7 +131,6 @@ func main() {
 		}
 	}()
 
-	// ── Graceful shutdown ────────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 

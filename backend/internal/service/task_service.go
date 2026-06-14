@@ -144,10 +144,8 @@ func (s *TaskService) AdminListTasks(ctx context.Context, p repository.ListTasks
 	return s.tasks.List(ctx, p)
 }
 
-// --- internal helpers -------------------------------------------------------
-
-// logActivity records a diff entry. It logs but does not fail on error because
-// a failed activity log should never abort the main operation.
+// logActivity records a diff entry. Errors are logged but don't fail the
+// caller — activity logging should never block the main operation.
 func (s *TaskService) logActivity(ctx context.Context, taskID, userID uuid.UUID, action string, before, after any) {
 	diff, err := json.Marshal(map[string]any{"before": before, "after": after})
 	if err != nil {

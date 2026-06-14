@@ -143,8 +143,6 @@ func (s *AuthService) Me(ctx context.Context, userID uuid.UUID) (*model.User, er
 	return s.users.GetByID(ctx, userID)
 }
 
-// --- helpers ----------------------------------------------------------------
-
 func (s *AuthService) buildAuthResult(ctx context.Context, user *model.User) (*AuthResult, error) {
 	accessToken, err := s.generateAccessToken(user)
 	if err != nil {

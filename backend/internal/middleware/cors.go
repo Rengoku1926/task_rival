@@ -7,11 +7,8 @@ import (
 	"github.com/prateekmahapatra/task_rival/backend/internal/config"
 )
 
-// CORS handles cross-origin requests for every route.
-// It is applied globally in main.go, not per-route.
-//
-// Preflight (OPTIONS) requests are short-circuited here — they never reach
-// route handlers.
+// CORS is applied globally in main.go. It short-circuits OPTIONS preflight
+// requests so they never reach route handlers.
 func CORS(cfg *config.Config) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

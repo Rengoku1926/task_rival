@@ -13,7 +13,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o server \
     ./cmd/server
 
-# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 # distroless has no shell — attackers can't exec into the container
 FROM gcr.io/distroless/static-debian12
 

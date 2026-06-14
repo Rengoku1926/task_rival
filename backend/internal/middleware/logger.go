@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,16 +10,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Logger attaches a request-scoped zerolog logger to the context and logs
-// every completed request with method, path, status, latency, and request ID.
-//
+// Logger attaches a per-request zerolog logger to the context and logs
+// the request once it completes (method, path, status, latency, request id).
 // Applied globally in main.go.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		requestID := uuid.New().String()
 
-		// Build a child logger enriched with request metadata.
 		logger := log.With().
 			Str("request_id", requestID).
 			Str("method", r.Method).
@@ -26,10 +25,9 @@ func Logger(next http.Handler) http.Handler {
 			Str("remote_ip", realIP(r)).
 			Logger()
 
-		// Attach logger to context — handlers retrieve it with zerolog.Ctx(r.Context()).
+		// handlers read this back via zerolog.Ctx(r.Context())
 		ctx := logger.WithContext(r.Context())
 
-		// Wrap ResponseWriter to capture the status code written by the handler.
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 
 		next.ServeHTTP(rw, r.WithContext(ctx))
@@ -42,16 +40,15 @@ func Logger(next http.Handler) http.Handler {
 	})
 }
 
-// realIP extracts the client IP, respecting the X-Real-IP header set by Render's proxy.
+// realIP returns the client IP, preferring the headers set by Render's proxy.
 func realIP(r *http.Request) string {
 	if ip := r.Header.Get("X-Real-IP"); ip != "" {
 		return ip
 	}
 	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		// X-Forwarded-For can be a comma-separated list; take the first.
-		if idx := len(ip); idx > 0 {
-			return ip
-		}
+		// X-Forwarded-For is a comma-separated list, client IP first
+		first, _, _ := strings.Cut(ip, ",")
+		return strings.TrimSpace(first)
 	}
 	return r.RemoteAddr
 }
